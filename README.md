@@ -37,10 +37,9 @@ graph TD
     F --> G[OpenAI/GPT-4]
     F --> H[Anthropic/Claude]
     F --> I[Google/Gemini]
-📁 Project Structure
-bash
-Copy
-Edit
+
+#### 📁 Project Structure
+
 main.py                # FastAPI entry point
 
 /config/
@@ -81,30 +80,27 @@ Notion API token & DB ID
 
 OpenAI API key
 
-Installation
-bash
-Copy
-Edit
+
+#### Installation
+
 # Clone the repo
 git clone git@github.com:yourusername/rbgchat-bot.git
 cd rbgchat-bot
 
-# Install dependencies
+tall dependencies
 poetry install
 
 # Copy environment template
 cp .env.example .env
 # Fill in your tokens in the .env file
-Run Locally
-bash
-Copy
-Edit
-poetry run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-Deploy to Fly.io
-bash
-Copy
-Edit
-# Install CLI (if not already)
+
+#### Run Locally
+y run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+#### Deploy to Fly.io
+
+# Install 
+f not already)
 # https://fly.io/docs/flyctl/install/
 
 # Deploy
@@ -134,63 +130,47 @@ Retrieve memory/context
 
 Customize behavior by editing the user’s Notion page.
 
-🚀 API Endpoints
+## 🚀 API Endpoints
 Slack Events
-http
-Copy
-Edit
+
 POST /slack/events
 Handles mentions, messages, and interactions.
 
 User Preferences
-http
-Copy
-Edit
+
 GET /users/me
 PUT /users/me/preferences
 Summaries
-http
-Copy
-Edit
+
 POST /summaries
 GET /summaries
 GET /summaries/{id}
 Example request:
 
-json
-Copy
-Edit
 {
   "url": "https://example.com/article",
   "maxLength": 500,
   "format": "markdown"
 }
 TODOs
-http
-Copy
-Edit
+
 GET /todos
 POST /todos
 PATCH /todos/{id}
 DELETE /todos/{id}
 Example request:
 
-json
-Copy
-Edit
 {
   "text": "Finish project report",
   "dueDate": "2023-04-20T17:00:00Z",
   "priority": "high"
 }
 Health Check
-http
-Copy
-Edit
+
 GET /health
 Returns API status.
 
-🧪 Testing & Code Quality
+## 🧪 Testing & Code Quality
 Code Style: Follows PEP 8
 
 Formatter: Black
@@ -201,7 +181,7 @@ Type Checking: MyPy
 
 Tests: Pytest for unit tests
 
-🤝 Contributing
+## 🤝 Contributing
 Fork the repo
 
 Create a feature branch
@@ -212,5 +192,5 @@ Submit a pull request with description
 
 Ensure tests pass
 
-📄 License
+## 📄 License
 This project is licensed under the MIT License.
