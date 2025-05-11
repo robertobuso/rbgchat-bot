@@ -1,103 +1,94 @@
-CrewAI Architecture
+# ChatDSJ Bot — AI-Powered Slack Bot with CrewAI Architecture
 
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-🧠 Overview
-RBGChat Bot is an AI-powered Slack bot built to enhance productivity and collaboration by integrating with Slack, Notion, and LLMs via a modular CrewAI architecture. It supports contextual responses, task tracking, summarization, and user memory — all running on a Python/FastAPI backend.
+## 🧠 Overview
 
-✨ Key Features
-Slack Integration — Responds to mentions in channels and threads.
+**ChatDSJ Bot** is an AI-powered Slack bot designed to enhance productivity and collaboration by integrating Slack, Notion, and large language models using a modular CrewAI architecture. It provides contextual responses, task tracking, content summarization, and memory management — all backed by a Python/FastAPI backend.
 
-Contextual AI Responses — Uses OpenAI LLMs for accurate, personalized answers.
+## ✨ Key Features
 
-User Memory — Stores user preferences, facts, and instructions in Notion.
+- **Slack Integration** — Responds to mentions in channels and threads  
+- **Contextual AI Responses** — Uses OpenAI for accurate, personalized answers  
+- **User Memory** — Stores preferences and instructions in Notion  
+- **Content Summarization** — Summarizes articles and YouTube videos  
+- **Task Management** — Tracks TODOs via Notion  
+- **Dynamic Prompts** — Editable prompts stored in Notion  
+- **Behavior Selection** — Chooses actions based on user intent and config  
 
-Content Summarization — Summarizes articles, documents, and YouTube videos.
+## 🏗️ Architecture
 
-Task Management — Manages TODO lists via Notion integration.
+ChatDSJ Bot follows a modular structure with clear separation of concerns:
 
-Dynamic Prompts — Uses editable prompts stored in Notion pages.
+- **FastAPI** — REST API server  
+- **Slack Bolt** — Slack events and message handling  
+- **CrewAI** — Orchestrates agents and tasks  
+- **LangChain** — Interfaces with OpenAI, Claude, Gemini  
+- **Notion API** — Persistent storage and memory  
+- **Redis** — Caching and coordination  
 
-Intelligent Behavior Selection — Automatically chooses actions based on user intent and system config.
+## 📐 High-Level Architecture Diagram
 
-🏗️ Architecture
-RBGChat Bot follows a modular architecture with clean separation of concerns:
-
-FastAPI — Serves the REST API
-
-Slack Bolt — Handles Slack event subscriptions and interactions
-
-CrewAI — Manages agent/task orchestration
-
-LangChain — Interfaces with LLMs (OpenAI, Claude, Gemini)
-
-Notion API — Stores user state, memory, and prompt content
-
-Redis — Used for caching and coordination
-
-📐 High-Level Architecture Diagram
-mermaid
-Copy
-Edit
+```mermaid
 graph TD
     A[Slack] <--> B[Fly.io Load Balancer]
-    B --> C[RBGChat Bot App Container]
+    B --> C[ChatDSJ Bot App Container]
     C --> D[Redis Cache]
     C --> E[Notion API]
     C --> F[LLM APIs]
     F --> G[OpenAI/GPT-4]
     F --> H[Anthropic/Claude]
     F --> I[Google/Gemini]
-📁 Project Structure
-bash
-Copy
-Edit
+```
+
+## 📁 Project Structure
+
+```
 main.py                # FastAPI entry point
 
 /config/
-  settings.py          # Environment + secrets config
+  settings.py          # Environment and secrets config
 
 /utils/
-  logging_config.py    # Structured logging setup
+  logging_config.py    # Structured logging
   token_counter.py     # Token usage tools
   text_processing.py   # Text utilities
 
 /services/
-  openai_service.py    # OpenAI integration
+  openai_service.py    # Handles OpenAI integration
   notion_service.py    # Notion API client
-  slack_service.py     # Slack event handler
+  slack_service.py     # Slack event logic
 
 /agents/
-  base_agent.py        # Base CrewAI agent class
-  slack_agent.py       # Slack-specific logic
-  memory_agent.py      # Notion memory management
-  response_agent.py    # OpenAI response generator
-  crew_manager.py      # CrewAI orchestration
+  base_agent.py        # Base CrewAI agent
+  slack_agent.py       # Slack interaction logic
+  memory_agent.py      # User memory via Notion
+  response_agent.py    # Generates responses
+  crew_manager.py      # Agent orchestration
 
 /tasks/
-  slack_tasks.py       # Slack-specific tasks
-  memory_tasks.py      # User memory tasks
-  response_tasks.py    # Response generation tasks
-⚙️ Setup
-Prerequisites
-Python 3.10+
+  slack_tasks.py       # Slack-related tasks
+  memory_tasks.py      # Memory-related tasks
+  response_tasks.py    # LLM response tasks
+```
 
-Poetry
+## ⚙️ Setup
 
-Fly.io CLI
+### Prerequisites
 
-Slack API credentials
+- Python 3.10+  
+- Poetry  
+- Fly.io CLI  
+- Slack Bot Token, App Token, and Signing Secret  
+- Notion API token and database ID  
+- OpenAI API key  
 
-Notion API token and database ID
+### Installation
 
-OpenAI API key
-
-Installation
-bash
-Copy
-Edit
+```
 # Clone the repo
-git clone git@github.com:yourusername/rbgchat-bot.git
-cd rbgchat-bot
+git clone git@github.com:yourusername/chatdsj-bot.git
+cd chatdsj-bot
 
 # Install dependencies
 poetry install
@@ -106,15 +97,17 @@ poetry install
 cp .env.example .env
 
 # Fill in your API keys and secrets in the .env file
-Run Locally
-bash
-Copy
-Edit
+```
+
+### Run Locally
+
+```
 poetry run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-Deploy to Fly.io
-bash
-Copy
-Edit
+```
+
+### Deploy to Fly.io
+
+```
 # Install Fly.io CLI if needed
 # https://fly.io/docs/flyctl/install/
 
@@ -128,72 +121,64 @@ flyctl secrets set SLACK_BOT_TOKEN="..." \
                   OPENAI_API_KEY="..." \
                   NOTION_API_TOKEN="..." \
                   NOTION_USER_DB_ID="..."
-💬 Usage
-Invite the bot to your Slack workspace
+```
 
-Add it to relevant channels or threads
+## 💬 Usage
 
-Mention @RBGChat Bot and use natural language commands:
+- Invite the bot to your Slack workspace  
+- Add it to channels or threads  
+- Mention `@ChatDSJ` to interact  
+- Use natural language to:
+  - Ask questions  
+  - Summarize articles  
+  - Manage TODOs  
+  - Retrieve user memory  
+- Customize by editing content and instructions in each user's Notion page  
 
-Ask questions
+## 🚀 API Endpoints
 
-Summarize links
+### Slack Events
 
-Manage TODOs
+- `POST /slack/events` — Handles incoming Slack events  
 
-Retrieve memory/context
+### User Preferences
 
-Customize by editing content and instructions in each user’s Notion page
+- `GET /users/me` — Retrieve user info  
+- `PUT /users/me/preferences` — Update preferences  
 
-🚀 API Endpoints
-Slack Events
-POST /slack/events — Handles Slack mentions and messages
+### Summaries
 
-User Preferences
-GET /users/me — Retrieve user info
+- `POST /summaries` — Generate summary from a URL  
+- `GET /summaries` — List summaries  
+- `GET /summaries/{id}` — Get a specific summary  
 
-PUT /users/me/preferences — Update preferences
+### TODOs
 
-Summaries
-POST /summaries — Create a summary from a URL
+- `GET /todos` — List TODOs  
+- `POST /todos` — Create TODO  
+- `PATCH /todos/{id}` — Update TODO  
+- `DELETE /todos/{id}` — Delete TODO  
 
-GET /summaries — List summaries
+### Health Check
 
-GET /summaries/{id} — Retrieve a specific summary
+- `GET /health` — Returns status info  
 
-TODOs
-GET /todos — List user’s tasks
+## 🧪 Testing & Code Quality
 
-POST /todos — Create a task
+- Style: PEP 8  
+- Formatter: Black  
+- Import Sorter: isort  
+- Type Checking: MyPy  
+- Testing Framework: Pytest  
 
-PATCH /todos/{id} — Update a task
+## 🤝 Contributing
 
-DELETE /todos/{id} — Delete a task
+- Fork the repo  
+- Create a feature branch  
+- Write clear commit messages  
+- Submit a PR with description  
+- Make sure all tests pass  
 
-Health Check
-GET /health — Returns API status
+## 📄 License
 
-🧪 Testing & Code Quality
-Code Style: PEP 8
-
-Formatter: Black
-
-Imports: isort
-
-Type Checking: MyPy
-
-Testing Framework: Pytest
-
-🤝 Contributing
-Fork the repository
-
-Create a feature branch
-
-Commit with clear messages
-
-Submit a pull request with a description
-
-Ensure all tests pass before submitting
-
-📄 License
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).

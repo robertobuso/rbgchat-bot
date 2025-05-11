@@ -5,6 +5,7 @@ This module implements the CrewAI orchestration layer that coordinates
 the agents and tasks to handle user interactions. It manages the workflow
 from receiving a Slack mention to delivering a response.
 """
+import re
 from typing import Dict, Any, List, Optional, Tuple
 
 from crewai import Crew
@@ -14,7 +15,10 @@ from config.settings import get_settings
 from agents.slack_agent import SlackAgent
 from agents.memory_agent import MemoryAgent
 from agents.response_agent import ResponseAgent
+from agents.content_agent import ContentAgent
+from agents.todo_agent import TodoAgent
 from utils.text_processing import extract_nickname_from_text
+from utils.metrics import timed, metrics
 
 # Initialize settings
 settings = get_settings()
@@ -32,6 +36,8 @@ class CrewManager:
         slack_agent: Agent for Slack interactions
         memory_agent: Agent for user memory management
         response_agent: Agent for response generation
+        content_agent: Agent for content extraction and summarization
+        todo_agent: Agent for todo management
         verbose: Whether to enable verbose logging
         crew: CrewAI Crew instance for agent coordination
     """
@@ -40,7 +46,9 @@ class CrewManager:
         self,
         slack_agent: SlackAgent,
         memory_agent: MemoryAgent,
-        response_agent: ResponseAgent
+        response_agent: ResponseAgent,
+        content_agent: Optional[ContentAgent] = None,
+        todo_agent: Optional[TodoAgent] = None
     ) -> None:
         """
         Initialize the Crew Manager with specialized agents.
@@ -49,10 +57,14 @@ class CrewManager:
             slack_agent: Agent for Slack interactions
             memory_agent: Agent for user memory management
             response_agent: Agent for response generation
+            content_agent: Optional agent for content processing
+            todo_agent: Optional agent for todo management
         """
         self.slack_agent = slack_agent
         self.memory_agent = memory_agent
         self.response_agent = response_agent
+        self.content_agent = content_agent
+        self.todo_agent = todo_agent
         self.verbose = settings.enable_crew_verbose
         
         # Initialize the crew
@@ -62,8 +74,8 @@ class CrewManager:
         """
         Initialize the CrewAI Crew with the specialized agents.
         
-        This method creates a Crew instance with the slack, memory, and
-        response agents, configuring it for sequential processing.
+        This method creates a Crew instance with all available agents,
+        configuring it for sequential processing.
         """
         try:
             # Get agent instances
@@ -72,6 +84,13 @@ class CrewManager:
                 self.memory_agent.get_agent(),
                 self.response_agent.get_agent()
             ]
+            
+            # Add optional agents if available
+            if self.content_agent:
+                agents.append(self.content_agent.get_agent())
+            
+            if self.todo_agent:
+                agents.append(self.todo_agent.get_agent())
             
             # Filter out None values (in case any agent failed to initialize)
             agents = [agent for agent in agents if agent]
@@ -83,19 +102,20 @@ class CrewManager:
                 verbose=self.verbose
             )
             
-            logger.info("Crew initialized with agents")
+            logger.info(f"Crew initialized with {len(agents)} agents")
             
         except Exception as e:
             logger.error(f"Failed to initialize crew: {e}")
             self.crew = None
 
+    @timed("process_mention")
     def process_mention(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process a Slack mention event.
         
         This method handles the entire workflow from receiving a mention
         to delivering a response, including context gathering, nickname
-        commands, and response generation.
+        commands, content processing, todo management, and response generation.
         
         Args:
             event: Slack event data containing the mention
@@ -133,8 +153,228 @@ class CrewManager:
             self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
             return response
         
+        # Check for content processing command (summarization)
+        if self.content_agent and self._is_content_processing_request(prompt):
+            return self._handle_content_processing(prompt, channel_id, user_id, thread_ts, message_ts)
+        
+        # Check for todo management command
+        if self.todo_agent and self._is_todo_management_request(prompt):
+            return self._handle_todo_management(prompt, channel_id, user_id, thread_ts, message_ts)
+        
+        # Default to conversational response
+        return self._handle_conversation(prompt, channel_id, user_id, thread_ts, message_ts, event)
+
+    def _is_content_processing_request(self, prompt: str) -> bool:
+        """
+        Check if the prompt is requesting content processing.
+        
+        Args:
+            prompt: The user's prompt
+            
+        Returns:
+            bool: True if content processing is requested, False otherwise
+        """
+        # Look for summarization keywords and URLs
+        summarize_keywords = ["summarize", "summary", "tldr", "extract", "analyze"]
+        has_url = re.search(r'https?://\S+', prompt) is not None
+        
+        return has_url and any(keyword in prompt.lower() for keyword in summarize_keywords)
+
+    def _is_todo_management_request(self, prompt: str) -> bool:
+        """
+        Check if the prompt is requesting todo management.
+        
+        Args:
+            prompt: The user's prompt
+            
+        Returns:
+            bool: True if todo management is requested, False otherwise
+        """
+        # Look for todo keywords
+        todo_keywords = ["todo", "task", "remind me", "add item", "list todos", "show todos", "my todos", "mark as done"]
+        
+        return any(keyword in prompt.lower() for keyword in todo_keywords)
+
+    @timed("handle_content_processing")
+    def _handle_content_processing(
+        self,
+        prompt: str,
+        channel_id: str,
+        user_id: str,
+        thread_ts: Optional[str],
+        message_ts: str
+    ) -> Dict[str, Any]:
+        """
+        Handle content processing requests.
+        
+        Args:
+            prompt: The user's prompt
+            channel_id: Slack channel ID
+            user_id: Slack user ID
+            thread_ts: Optional thread timestamp
+            message_ts: Message timestamp
+            
+        Returns:
+            Dict[str, Any]: Response data
+        """
+        if not self.content_agent:
+            response = self.slack_agent.send_message(
+                channel_id,
+                "I'm sorry, but content processing is not available at the moment.",
+                thread_ts
+            )
+            self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+            return response
+        
+        # Extract URLs from the prompt
+        urls = self.content_agent.extract_urls_from_text(prompt)
+        
+        if not urls:
+            response = self.slack_agent.send_message(
+                channel_id,
+                "I couldn't find any URLs to process in your message. Please include a valid URL when asking for summarization.",
+                thread_ts
+            )
+            self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+            return response
+        
+        # Process the first URL (for now, we'll just handle one at a time)
+        url = urls[0]
+        url_type = self.content_agent.determine_source_type(url)
+        
+        # Send a processing message
+        self.slack_agent.send_message(
+            channel_id,
+            f"Processing {url_type} content from {url}...",
+            thread_ts
+        )
+        
+        # Extract and summarize the content
+        summary_result = self.content_agent.extract_and_summarize(url)
+        
+        if not summary_result.get("success", False):
+            error_message = summary_result.get("error", "Unknown error")
+            response = self.slack_agent.send_message(
+                channel_id,
+                f"I'm sorry, but I couldn't process the content: {error_message}",
+                thread_ts
+            )
+            self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+            return response
+        
+        # Format the summary
+        title = summary_result.get("title", "Untitled")
+        summary = summary_result.get("summary", "No summary generated")
+        source_url = summary_result.get("sourceUrl", url)
+        source_type = summary_result.get("sourceType", url_type)
+        
+        formatted_summary = f"*Summary of {title}*\n\n{summary}\n\n*Source:* {source_url}"
+        
+        # Send the summary
+        response = self.slack_agent.send_message(channel_id, formatted_summary, thread_ts)
+        
+        # Store the summary in Notion if possible
+        try:
+            if self.memory_agent.notion_service.summary_db_id:
+                self.memory_agent.notion_service.save_content_summary(
+                    slack_user_id=user_id,
+                    title=title,
+                    summary=summary,
+                    source_url=source_url,
+                    source_type=source_type,
+                    tags=summary_result.get("tags", [])
+                )
+        except Exception as e:
+            logger.error(f"Failed to store summary in Notion: {e}")
+        
+        self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+        return response
+
+    @timed("handle_todo_management")
+    def _handle_todo_management(
+        self,
+        prompt: str,
+        channel_id: str,
+        user_id: str,
+        thread_ts: Optional[str],
+        message_ts: str
+    ) -> Dict[str, Any]:
+        """
+        Handle todo management requests.
+        
+        Args:
+            prompt: The user's prompt
+            channel_id: Slack channel ID
+            user_id: Slack user ID
+            thread_ts: Optional thread timestamp
+            message_ts: Message timestamp
+            
+        Returns:
+            Dict[str, Any]: Response data
+        """
+        if not self.todo_agent:
+            response = self.slack_agent.send_message(
+                channel_id,
+                "I'm sorry, but todo management is not available at the moment.",
+                thread_ts
+            )
+            self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+            return response
+        
+        # Handle the todo command
+        todo_result = self.todo_agent.handle_todo_command(prompt, user_id)
+        
+        if not todo_result.get("success", False):
+            error_message = todo_result.get("message", "I couldn't process your todo request.")
+            response = self.slack_agent.send_message(channel_id, error_message, thread_ts)
+            self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+            return response
+        
+        # Format the response message
+        message = todo_result.get("message", "Todo operation completed successfully.")
+        
+        # Add todo list if available
+        todos = todo_result.get("todos", [])
+        if todos:
+            message += "\n\n"
+            for i, todo in enumerate(todos, 1):
+                status = "✅" if todo.get("completed", False) else "⬜"
+                priority_map = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+                priority = priority_map.get(todo.get("priority", "medium"), "")
+                due_date = f" (Due: {todo.get('due_date')})" if todo.get("due_date") else ""
+                message += f"{i}. {status} {priority} {todo.get('text', '')}{due_date}\n"
+        
+        # Send the response
+        response = self.slack_agent.send_message(channel_id, message, thread_ts)
+        self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+        return response
+
+    @timed("handle_conversation")
+    def _handle_conversation(
+        self,
+        prompt: str,
+        channel_id: str,
+        user_id: str,
+        thread_ts: Optional[str],
+        message_ts: str,
+        event: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Handle conversational interactions.
+        
+        Args:
+            prompt: The user's prompt
+            channel_id: Slack channel ID
+            user_id: Slack user ID
+            thread_ts: Optional thread timestamp
+            message_ts: Message timestamp
+            event: The original Slack event
+            
+        Returns:
+            Dict[str, Any]: Response data
+        """
         # Determine context type
-        is_new_main_channel_question = not event.get("thread_ts")
+        is_new_main_channel_question = not thread_ts
         
         # Fetch appropriate history
         if is_new_main_channel_question:
@@ -208,5 +448,8 @@ class CrewManager:
         
         # Update stats
         self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+        
+        # Record metrics
+        metrics.track_api_call("openai_completion")
         
         return response
