@@ -1,33 +1,43 @@
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+CrewAI Architecture
 
-## 🧠 Overview
 
-**RBGChat Bot** is an AI-powered Slack bot built to enhance productivity and collaboration by integrating with Slack, Notion, and LLMs via a modular CrewAI architecture. It supports contextual responses, task tracking, summarization, and user memory — all running on a Python/FastAPI backend.
+🧠 Overview
+RBGChat Bot is an AI-powered Slack bot built to enhance productivity and collaboration by integrating with Slack, Notion, and LLMs via a modular CrewAI architecture. It supports contextual responses, task tracking, summarization, and user memory — all running on a Python/FastAPI backend.
 
-## ✨ Key Features
+✨ Key Features
+Slack Integration — Responds to mentions in channels and threads.
 
-- **Slack Integration** — Responds to mentions in channels and threads.
-- **Contextual AI Responses** — Uses OpenAI LLMs for accurate, personalized answers.
-- **User Memory** — Stores user preferences, facts, and instructions in Notion.
-- **Content Summarization** — Summarizes articles, documents, and YouTube videos.
-- **Task Management** — Manages TODO lists via Notion integration.
-- **Dynamic Prompts** — Uses editable prompts stored in Notion pages.
-- **Intelligent Behavior Selection** — Automatically chooses actions based on user intent and system config.
+Contextual AI Responses — Uses OpenAI LLMs for accurate, personalized answers.
 
-## 🏗️ Architecture
+User Memory — Stores user preferences, facts, and instructions in Notion.
 
+Content Summarization — Summarizes articles, documents, and YouTube videos.
+
+Task Management — Manages TODO lists via Notion integration.
+
+Dynamic Prompts — Uses editable prompts stored in Notion pages.
+
+Intelligent Behavior Selection — Automatically chooses actions based on user intent and system config.
+
+🏗️ Architecture
 RBGChat Bot follows a modular architecture with clean separation of concerns:
 
-- **FastAPI** — Serves the REST API.
-- **Slack Bolt** — Handles Slack event subscriptions and interactions.
-- **CrewAI** — Manages agent/task orchestration.
-- **LangChain** — Interfaces with LLMs (OpenAI, Claude, Gemini).
-- **Notion API** — Stores user state, memory, and prompt content.
-- **Redis** — Used for caching and coordination.
+FastAPI — Serves the REST API
 
-### High-Level Architecture Diagram
+Slack Bolt — Handles Slack event subscriptions and interactions
 
-```mermaid
+CrewAI — Manages agent/task orchestration
+
+LangChain — Interfaces with LLMs (OpenAI, Claude, Gemini)
+
+Notion API — Stores user state, memory, and prompt content
+
+Redis — Used for caching and coordination
+
+📐 High-Level Architecture Diagram
+mermaid
+Copy
+Edit
 graph TD
     A[Slack] <--> B[Fly.io Load Balancer]
     B --> C[RBGChat Bot App Container]
@@ -37,9 +47,10 @@ graph TD
     F --> G[OpenAI/GPT-4]
     F --> H[Anthropic/Claude]
     F --> I[Google/Gemini]
-
-#### 📁 Project Structure
-
+📁 Project Structure
+bash
+Copy
+Edit
 main.py                # FastAPI entry point
 
 /config/
@@ -76,31 +87,35 @@ Fly.io CLI
 
 Slack API credentials
 
-Notion API token & DB ID
+Notion API token and database ID
 
 OpenAI API key
 
-
-#### Installation
-
+Installation
+bash
+Copy
+Edit
 # Clone the repo
 git clone git@github.com:yourusername/rbgchat-bot.git
 cd rbgchat-bot
 
-tall dependencies
+# Install dependencies
 poetry install
 
-# Copy environment template
+# Copy env template
 cp .env.example .env
-# Fill in your tokens in the .env file
 
-#### Run Locally
-y run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-
-#### Deploy to Fly.io
-
-# Install 
-f not already)
+# Fill in your API keys and secrets in the .env file
+Run Locally
+bash
+Copy
+Edit
+poetry run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+Deploy to Fly.io
+bash
+Copy
+Edit
+# Install Fly.io CLI if needed
 # https://fly.io/docs/flyctl/install/
 
 # Deploy
@@ -114,11 +129,11 @@ flyctl secrets set SLACK_BOT_TOKEN="..." \
                   NOTION_API_TOKEN="..." \
                   NOTION_USER_DB_ID="..."
 💬 Usage
-Invite the bot to your Slack workspace.
+Invite the bot to your Slack workspace
 
-Add it to specific channels or threads.
+Add it to relevant channels or threads
 
-Mention @RBGChat Bot and issue natural-language commands:
+Mention @RBGChat Bot and use natural language commands:
 
 Ask questions
 
@@ -128,50 +143,38 @@ Manage TODOs
 
 Retrieve memory/context
 
-Customize behavior by editing the user’s Notion page.
+Customize by editing content and instructions in each user’s Notion page
 
-## 🚀 API Endpoints
+🚀 API Endpoints
 Slack Events
-
-POST /slack/events
-Handles mentions, messages, and interactions.
+POST /slack/events — Handles Slack mentions and messages
 
 User Preferences
+GET /users/me — Retrieve user info
 
-GET /users/me
-PUT /users/me/preferences
+PUT /users/me/preferences — Update preferences
+
 Summaries
+POST /summaries — Create a summary from a URL
 
-POST /summaries
-GET /summaries
-GET /summaries/{id}
-Example request:
+GET /summaries — List summaries
 
-{
-  "url": "https://example.com/article",
-  "maxLength": 500,
-  "format": "markdown"
-}
+GET /summaries/{id} — Retrieve a specific summary
+
 TODOs
+GET /todos — List user’s tasks
 
-GET /todos
-POST /todos
-PATCH /todos/{id}
-DELETE /todos/{id}
-Example request:
+POST /todos — Create a task
 
-{
-  "text": "Finish project report",
-  "dueDate": "2023-04-20T17:00:00Z",
-  "priority": "high"
-}
+PATCH /todos/{id} — Update a task
+
+DELETE /todos/{id} — Delete a task
+
 Health Check
+GET /health — Returns API status
 
-GET /health
-Returns API status.
-
-## 🧪 Testing & Code Quality
-Code Style: Follows PEP 8
+🧪 Testing & Code Quality
+Code Style: PEP 8
 
 Formatter: Black
 
@@ -179,18 +182,18 @@ Imports: isort
 
 Type Checking: MyPy
 
-Tests: Pytest for unit tests
+Testing Framework: Pytest
 
-## 🤝 Contributing
-Fork the repo
+🤝 Contributing
+Fork the repository
 
 Create a feature branch
 
 Commit with clear messages
 
-Submit a pull request with description
+Submit a pull request with a description
 
-Ensure tests pass
+Ensure all tests pass before submitting
 
-## 📄 License
+📄 License
 This project is licensed under the MIT License.
