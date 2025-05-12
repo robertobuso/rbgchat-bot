@@ -30,15 +30,12 @@ ChatDSJ Bot follows a modular structure with clear separation of concerns:
 ## 📐 High-Level Architecture Diagram
 
 ```mermaid
-graph TD
-    A[Slack] <--> B[Fly.io Load Balancer]
-    B --> C[ChatDSJ Bot App Container]
-    C --> D[Redis Cache]
-    C --> E[Notion API]
-    C --> F[LLM APIs]
-    F --> G[OpenAI/GPT-4]
-    F --> H[Anthropic/Claude]
-    F --> I[Google/Gemini]
+- **FastAPI** — REST API server  
+- **Slack Bolt** — Slack events and message handling  
+- **CrewAI** — Orchestrates agents and tasks  
+- **LangChain** — Interfaces with OpenAI, Claude, Gemini  
+- **Notion API** — Persistent storage and memory  
+- **Redis** — Caching and coordination  
 ```
 
 ## 📁 Project Structure

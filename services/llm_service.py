@@ -1,33 +1,33 @@
 """
-OpenAI service for ChatDSJ Slack Bot.
+LLM service for ChatDSJ Slack Bot using LiteLLM.
 
-This module provides a service for interacting with OpenAI's API,
+This module provides a service for interacting with various LLMs through LiteLLM,
 handling completions, and tracking usage.
 """
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List, Any
 
-from openai import OpenAI
-from openai.types.chat import ChatCompletion
+import litellm
+from litellm import completion
 
 from config.settings import get_settings
 from utils.logging_config import configure_logging
 from utils.token_counter import count_messages_tokens, ensure_messages_within_limit
+from utils.metrics import timed, metrics, track_api
 
 # Initialize logger and settings
 logger = configure_logging()
 settings = get_settings()
 
 
-class OpenAIService:
+class LLMService:
     """
-    Service for interacting with OpenAI's API.
+    Service for interacting with LLMs via LiteLLM.
     
-    This class handles communication with OpenAI, manages token usage,
-    and provides completion functionality for the bot.
+    This class handles communication with various LLM providers,
+    manages token usage, and provides completion functionality.
     
     Attributes:
-        client: OpenAI client instance
         model: Model to use for completions
         max_tokens: Maximum tokens for responses
         usage_stats: Dictionary tracking token usage and costs
@@ -35,12 +35,11 @@ class OpenAIService:
 
     def __init__(self) -> None:
         """
-        Initialize the OpenAI service with API key from settings.
+        Initialize the LLM service with API key from settings.
         
-        Sets up the OpenAI client, configures model parameters,
+        Sets up LiteLLM configuration, model parameters,
         and initializes usage tracking.
         """
-        self.client: Optional[OpenAI] = None
         self.model: str = settings.openai_model
         self.max_tokens: int = settings.max_tokens_response
         
@@ -55,38 +54,42 @@ class OpenAIService:
             "failed_requests": 0,
         }
         
-        # Initialize client if API key is available
+        # Initialize LiteLLM configuration
         api_key = settings.openai_api_key.get_secret_value() if settings.openai_api_key else None
         if api_key:
             try:
-                self.client = OpenAI(api_key=api_key)
-                logger.info(f"OpenAI service initialized with model {self.model}")
+                # Configure LiteLLM with the API key
+                litellm.api_key = api_key
+                litellm.set_verbose = False  # Set to True for debugging
+                
+                logger.info(f"LLM service initialized with model {self.model}")
             except Exception as e:
-                logger.error(f"Failed to initialize OpenAI client: {e}")
-                self.client = None
+                logger.error(f"Failed to initialize LiteLLM: {e}")
         else:
             logger.warning("OpenAI API key not provided, service will not be available")
 
     def is_available(self) -> bool:
         """
-        Check if the OpenAI service is available.
+        Check if the LLM service is available.
         
         Returns:
-            bool: True if the client is initialized, False otherwise
+            bool: True if LiteLLM is configured, False otherwise
         """
-        return self.client is not None
+        return hasattr(litellm, "api_key") and litellm.api_key is not None
 
+    @timed("llm_completion")
+    @track_api("llm_api")
     def get_completion(
         self,
         prompt: str,
-        conversation_history: list,
+        conversation_history: List[Dict[str, str]],
         user_specific_context: Optional[str] = None,
         linked_notion_content: Optional[str] = None,
         max_retries: int = 3,
         retry_delay: float = 1.0,
     ) -> Tuple[Optional[str], Optional[Dict]]:
         """
-        Get a completion from OpenAI for the given prompt and context.
+        Get a completion from the LLM for the given prompt and context.
         
         Args:
             prompt: The user's current prompt
@@ -101,7 +104,7 @@ class OpenAIService:
                                                  or (None, None) if the request fails
         """
         if not self.is_available():
-            logger.error("OpenAI client not initialized")
+            logger.error("LLM client not initialized")
             return None, None
         
         # Prepare system prompt with context
@@ -138,14 +141,12 @@ class OpenAIService:
         # Try to get completion with exponential backoff
         for attempt in range(max_retries):
             try:
-                logger.debug(f"Sending request to OpenAI (attempt {attempt + 1}/{max_retries})")
+                logger.debug(f"Sending request to LLM (attempt {attempt + 1}/{max_retries})")
                 
-                response: ChatCompletion = self.client.chat.completions.create(
+                # Use LiteLLM for the completion
+                response = completion(
                     model=self.model,
-                    messages=[{
-                        "role": m["role"],
-                        "content": m["content"]
-                    } for m in messages],
+                    messages=messages,
                     max_tokens=self.max_tokens,
                     temperature=0.7,
                 )
@@ -162,11 +163,11 @@ class OpenAIService:
                 self._update_usage_tracking(usage)
                 self.usage_stats["successful_requests"] += 1
                 
-                logger.debug(f"OpenAI response received: {len(content)} chars, {usage['total_tokens']} tokens")
+                logger.debug(f"LLM response received: {len(content)} chars, {usage['total_tokens']} tokens")
                 return content, usage
                 
             except Exception as e:
-                logger.error(f"Error getting completion from OpenAI: {e}")
+                logger.error(f"Error getting completion from LLM: {e}")
                 self.usage_stats["failed_requests"] += 1
                 
                 # Exponential backoff
@@ -183,7 +184,7 @@ class OpenAIService:
         Update usage statistics with the latest request.
         
         Args:
-            usage: Usage statistics from the OpenAI response
+            usage: Usage statistics from the LLM response
         """
         self.usage_stats["total_prompt_tokens"] += usage["prompt_tokens"]
         self.usage_stats["total_completion_tokens"] += usage["completion_tokens"]
@@ -200,19 +201,22 @@ class OpenAIService:
         Calculate the cost of a request based on token usage.
         
         Args:
-            usage: Usage statistics from the OpenAI response
+            usage: Usage statistics from the LLM response
             
         Returns:
             float: Estimated cost in USD
         """
-        # Pricing per 1K tokens (as of March 2023)
-        # These rates should be updated if OpenAI changes their pricing
+        # Pricing per 1K tokens (as of May 2025)
+        # These rates should be updated if pricing changes
         pricing = {
             "gpt-4o": {"prompt": 0.01, "completion": 0.03},
             "gpt-4": {"prompt": 0.03, "completion": 0.06},
             "gpt-4-32k": {"prompt": 0.06, "completion": 0.12},
             "gpt-3.5-turbo": {"prompt": 0.0015, "completion": 0.002},
             "gpt-3.5-turbo-16k": {"prompt": 0.003, "completion": 0.004},
+            "claude-3-opus-20240229": {"prompt": 0.015, "completion": 0.075},
+            "claude-3-sonnet-20240229": {"prompt": 0.008, "completion": 0.024},
+            "claude-3-haiku-20240307": {"prompt": 0.0025, "completion": 0.0125},
         }
         
         # Default to gpt-3.5-turbo pricing if model not found
