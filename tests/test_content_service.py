@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from services.content_service import ContentService
-from services.openai_service import OpenAIService
+from services.llm_service import LLMService
 
 
 class TestContentService(unittest.TestCase):
@@ -16,8 +16,8 @@ class TestContentService(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        # Create a mock OpenAIService
-        self.mock_openai_service = MagicMock(spec=OpenAIService)
+        # Create a mock LLMService
+        self.mock_openai_service = MagicMock(spec=LLMService)
         self.mock_openai_service.is_available.return_value = True
         self.mock_openai_service.get_completion.return_value = ("This is a summary", {"prompt_tokens": 100, "completion_tokens": 50})
         

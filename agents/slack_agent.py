@@ -7,7 +7,7 @@ with the Slack API and manages message sending and retrieval.
 from typing import Any, Dict, List, Optional
 
 from crewai import Agent
-from crewai.tools import Tool
+from langchain.tools import Tool
 
 from agents.base_agent import BaseAgent
 from services.slack_service import SlackService

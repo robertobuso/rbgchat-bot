@@ -6,7 +6,7 @@ and summarization from various sources such as web pages and YouTube videos.
 """
 from typing import Dict, List, Optional
 
-from crewai.tools import Tool
+from langchain.tools import Tool
 
 from agents.base_agent import BaseAgent
 from services.content_service import ContentService

@@ -6,7 +6,7 @@ management through the Notion service.
 """
 from typing import List, Optional, Tuple
 
-from crewai.tools import Tool
+from langchain.tools import Tool
 
 from agents.base_agent import BaseAgent
 from services.notion_service import NotionService

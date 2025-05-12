@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 from loguru import logger
 
 from config.settings import get_settings
-from services.openai_service import OpenAIService
+from services.llm_service import LLMService
 from utils.logging_config import configure_logging
 
 # Initialize logger and settings
@@ -35,7 +35,7 @@ class ContentService:
         source_parsers: Dictionary of source-specific parser functions
     """
 
-    def __init__(self, openai_service: Optional[OpenAIService] = None) -> None:
+    def __init__(self, openai_service: Optional[LLMService] = None) -> None:
         """
         Initialize the Content service with OpenAI service for summarization.
         

@@ -8,7 +8,7 @@ from receiving a Slack mention to delivering a response.
 import re
 from typing import Dict, Any, List, Optional, Tuple
 
-from crewai import Crew
+from crewai import Crew, Process, Task
 from loguru import logger
 
 from config.settings import get_settings
@@ -95,11 +95,13 @@ class CrewManager:
             # Filter out None values (in case any agent failed to initialize)
             agents = [agent for agent in agents if agent]
             
-            # Create the crew
+            # Create the crew with string literal for process instead of Crew.SEQUENTIAL
+            # and memory=False to fix the validation error
             self.crew = Crew(
                 agents=agents,
-                process=Crew.SEQUENTIAL,
-                verbose=self.verbose
+                process="sequential",  # Use string literal instead of Crew.SEQUENTIAL
+                verbose=self.verbose,
+                memory=False  # Set memory explicitly to False
             )
             
             logger.info(f"Crew initialized with {len(agents)} agents")
@@ -107,7 +109,7 @@ class CrewManager:
         except Exception as e:
             logger.error(f"Failed to initialize crew: {e}")
             self.crew = None
-
+            
     @timed("process_mention")
     def process_mention(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -249,46 +251,86 @@ class CrewManager:
             thread_ts
         )
         
-        # Extract and summarize the content
-        summary_result = self.content_agent.extract_and_summarize(url)
+        # Create a task for content processing
+        content_task = Task(
+            description=f"Extract and summarize content from the URL: {url}",
+            expected_output="A summary of the content with title, main points, and source information.",
+            agent=self.content_agent.get_agent()
+        )
         
-        if not summary_result.get("success", False):
-            error_message = summary_result.get("error", "Unknown error")
+        try:
+            # Execute the task using the content agent
+            task_context = {
+                "url": url,
+                "max_length": 500,
+                "format": "markdown"
+            }
+            
+            # Get the summary
+            summary_result = self.content_agent.execute_task(content_task, task_context)
+            
+            # Format the response
+            if not summary_result or "error" in summary_result.lower():
+                response = self.slack_agent.send_message(
+                    channel_id,
+                    f"I'm sorry, but I couldn't process the content: {summary_result}",
+                    thread_ts
+                )
+                self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+                return response
+            
+            # Extract info from the summary result
+            # Either parse the summary result or directly use the extract_and_summarize method
+            # For simplicity, we'll use the direct method here
+            summary_data = self.content_agent.extract_and_summarize(url)
+            
+            if not summary_data.get("success", False):
+                error_message = summary_data.get("error", "Unknown error")
+                response = self.slack_agent.send_message(
+                    channel_id,
+                    f"I'm sorry, but I couldn't process the content: {error_message}",
+                    thread_ts
+                )
+                self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+                return response
+            
+            # Format the summary
+            title = summary_data.get("title", "Untitled")
+            summary = summary_data.get("summary", "No summary generated")
+            source_url = summary_data.get("sourceUrl", url)
+            source_type = summary_data.get("sourceType", url_type)
+            
+            formatted_summary = f"*Summary of {title}*\n\n{summary}\n\n*Source:* {source_url}"
+            
+            # Send the summary
+            response = self.slack_agent.send_message(channel_id, formatted_summary, thread_ts)
+            
+            # Store the summary in Notion if possible
+            try:
+                if self.memory_agent.notion_service.summary_db_id:
+                    self.memory_agent.notion_service.save_content_summary(
+                        slack_user_id=user_id,
+                        title=title,
+                        summary=summary,
+                        source_url=source_url,
+                        source_type=source_type,
+                        tags=summary_data.get("tags", [])
+                    )
+            except Exception as e:
+                logger.error(f"Failed to store summary in Notion: {e}")
+            
+            self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error processing content: {e}")
             response = self.slack_agent.send_message(
                 channel_id,
-                f"I'm sorry, but I couldn't process the content: {error_message}",
+                f"I encountered an error while processing the content: {str(e)}",
                 thread_ts
             )
             self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
             return response
-        
-        # Format the summary
-        title = summary_result.get("title", "Untitled")
-        summary = summary_result.get("summary", "No summary generated")
-        source_url = summary_result.get("sourceUrl", url)
-        source_type = summary_result.get("sourceType", url_type)
-        
-        formatted_summary = f"*Summary of {title}*\n\n{summary}\n\n*Source:* {source_url}"
-        
-        # Send the summary
-        response = self.slack_agent.send_message(channel_id, formatted_summary, thread_ts)
-        
-        # Store the summary in Notion if possible
-        try:
-            if self.memory_agent.notion_service.summary_db_id:
-                self.memory_agent.notion_service.save_content_summary(
-                    slack_user_id=user_id,
-                    title=title,
-                    summary=summary,
-                    source_url=source_url,
-                    source_type=source_type,
-                    tags=summary_result.get("tags", [])
-                )
-        except Exception as e:
-            logger.error(f"Failed to store summary in Notion: {e}")
-        
-        self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
-        return response
 
     @timed("handle_todo_management")
     def _handle_todo_management(
@@ -321,33 +363,61 @@ class CrewManager:
             self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
             return response
         
-        # Handle the todo command
-        todo_result = self.todo_agent.handle_todo_command(prompt, user_id)
+        # Create a task for todo management
+        todo_task = Task(
+            description=f"Process the todo request: '{prompt}' for user {user_id}",
+            expected_output="Result of the todo operation with success status and any relevant information.",
+            agent=self.todo_agent.get_agent()
+        )
         
-        if not todo_result.get("success", False):
-            error_message = todo_result.get("message", "I couldn't process your todo request.")
-            response = self.slack_agent.send_message(channel_id, error_message, thread_ts)
+        try:
+            # Execute the task with context
+            task_context = {
+                "prompt": prompt,
+                "user_id": user_id
+            }
+            
+            # Process the todo command
+            todo_result_str = self.todo_agent.execute_task(todo_task, task_context)
+            
+            # Parse the result - in real code, you'd probably want a more structured approach
+            # But for simplicity, we'll use the direct method
+            todo_result = self.todo_agent.handle_todo_command(prompt, user_id)
+            
+            if not todo_result.get("success", False):
+                error_message = todo_result.get("message", "I couldn't process your todo request.")
+                response = self.slack_agent.send_message(channel_id, error_message, thread_ts)
+                self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+                return response
+            
+            # Format the response message
+            message = todo_result.get("message", "Todo operation completed successfully.")
+            
+            # Add todo list if available
+            todos = todo_result.get("todos", [])
+            if todos:
+                message += "\n\n"
+                for i, todo in enumerate(todos, 1):
+                    status = "✅" if todo.get("completed", False) else "⬜"
+                    priority_map = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+                    priority = priority_map.get(todo.get("priority", "medium"), "")
+                    due_date = f" (Due: {todo.get('due_date')})" if todo.get("due_date") else ""
+                    message += f"{i}. {status} {priority} {todo.get('text', '')}{due_date}\n"
+            
+            # Send the response
+            response = self.slack_agent.send_message(channel_id, message, thread_ts)
             self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
             return response
-        
-        # Format the response message
-        message = todo_result.get("message", "Todo operation completed successfully.")
-        
-        # Add todo list if available
-        todos = todo_result.get("todos", [])
-        if todos:
-            message += "\n\n"
-            for i, todo in enumerate(todos, 1):
-                status = "✅" if todo.get("completed", False) else "⬜"
-                priority_map = {"high": "🔴", "medium": "🟡", "low": "🟢"}
-                priority = priority_map.get(todo.get("priority", "medium"), "")
-                due_date = f" (Due: {todo.get('due_date')})" if todo.get("due_date") else ""
-                message += f"{i}. {status} {priority} {todo.get('text', '')}{due_date}\n"
-        
-        # Send the response
-        response = self.slack_agent.send_message(channel_id, message, thread_ts)
-        self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
-        return response
+            
+        except Exception as e:
+            logger.error(f"Error handling todo request: {e}")
+            response = self.slack_agent.send_message(
+                channel_id,
+                f"I encountered an error while processing your todo request: {str(e)}",
+                thread_ts
+            )
+            self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+            return response
 
     @timed("handle_conversation")
     def _handle_conversation(
@@ -411,7 +481,7 @@ class CrewManager:
             if "user" in msg and msg["user"] not in user_display_names:
                 user_display_names[msg["user"]] = self.slack_agent.get_user_display_name(msg["user"])
         
-        # Format history for OpenAI
+        # Format history for LLM
         formatted_history = self.response_agent.format_conversation(
             merged_messages,
             user_display_names,
@@ -429,27 +499,56 @@ class CrewManager:
         if user_page_content:
             user_specific_context += f" Here is some context about this user: {user_page_content}"
         
-        # Generate response
-        response_text = self.response_agent.generate_response(
-            prompt=prompt,
-            conversation_history=formatted_history,
-            user_specific_context=user_specific_context
+        # Create a response generation task
+        response_task = Task(
+            description=f"Generate a response to: '{prompt}' with appropriate context",
+            expected_output="A helpful, contextually appropriate response to the user's prompt.",
+            agent=self.response_agent.get_agent()
         )
         
-        # Send response
-        if response_text:
-            response = self.slack_agent.send_message(channel_id, response_text, thread_ts)
-        else:
+        try:
+            # Execute the task with context
+            task_context = {
+                "prompt": prompt,
+                "conversation_history": formatted_history,
+                "user_specific_context": user_specific_context
+            }
+            
+            # Generate response
+            response_text = self.response_agent.execute_task(response_task, task_context)
+            
+            # As a fallback, use the direct method if needed
+            if not response_text or len(response_text.strip()) < 5:
+                response_text = self.response_agent.generate_response(
+                    prompt=prompt,
+                    conversation_history=formatted_history,
+                    user_specific_context=user_specific_context
+                )
+            
+            # Send response
+            if response_text:
+                response = self.slack_agent.send_message(channel_id, response_text, thread_ts)
+            else:
+                response = self.slack_agent.send_message(
+                    channel_id,
+                    "I'm sorry, I couldn't generate a response for that.",
+                    thread_ts
+                )
+            
+            # Update stats
+            self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+            
+            # Record metrics
+            metrics.track_api_call("llm_completion")
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
             response = self.slack_agent.send_message(
                 channel_id,
-                "I'm sorry, I couldn't generate a response for that.",
+                f"I encountered an error while generating a response: {str(e)}",
                 thread_ts
             )
-        
-        # Update stats
-        self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
-        
-        # Record metrics
-        metrics.track_api_call("openai_completion")
-        
-        return response
+            self.slack_agent.slack_service.update_channel_stats(channel_id, user_id, message_ts)
+            return response

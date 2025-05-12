@@ -6,10 +6,10 @@ responses to user queries using the OpenAI service.
 """
 from typing import Dict, List, Optional
 
-from crewai.tools import Tool
+from langchain.tools import Tool
 
 from agents.base_agent import BaseAgent
-from services.openai_service import OpenAIService
+from services.llm_service import LLMService
 from utils.logging_config import configure_logging
 from utils.text_processing import format_conversation_for_openai
 
@@ -20,19 +20,19 @@ class ResponseAgent(BaseAgent):
     """
     Agent specialized in generating responses to user queries.
     
-    This agent wraps the OpenAIService and provides tools for generating
+    This agent wraps the LLMService and provides tools for generating
     appropriate responses based on conversation context.
     
     Attributes:
-        openai_service: The OpenAIService instance for API interactions
+        openai_service: The LLMService instance for API interactions
     """
 
-    def __init__(self, openai_service: OpenAIService, verbose: bool = False) -> None:
+    def __init__(self, openai_service: LLMService, verbose: bool = False) -> None:
         """
-        Initialize a Response agent with the OpenAIService.
+        Initialize a Response agent with the LLMService.
         
         Args:
-            openai_service: The OpenAIService instance for API interactions
+            openai_service: The LLMService instance for API interactions
             verbose: Whether to enable verbose logging
         """
         self.openai_service = openai_service

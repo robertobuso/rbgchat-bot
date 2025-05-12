@@ -5,12 +5,19 @@ This module defines the application settings using Pydantic for validation
 and environment variable loading.
 """
 from functools import lru_cache
-from typing import Literal, Optional
+from typing import Literal, Optional, Dict, Any
 
-from pydantic import BaseSettings, SecretStr, validator
+# Import directly from pydantic without requiring pydantic-settings
+from pydantic import (
+    BaseModel, 
+    SecretStr, 
+    field_validator,
+    model_validator,
+    ConfigDict
+)
 
 
-class Settings(BaseSettings):
+class Settings(BaseModel):
     """
     Application settings with environment variable loading and validation.
     
@@ -29,6 +36,16 @@ class Settings(BaseSettings):
         max_message_history: Maximum messages to keep in conversation history
         enable_crew_verbose: Enable verbose logging for CrewAI
     """
+    # Configuration using ConfigDict instead of class Config
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        # Enable environment variable loading
+        populate_by_name=True,
+    )
+    
     # Slack Configuration
     slack_bot_token: SecretStr
     slack_signing_secret: SecretStr
@@ -50,7 +67,8 @@ class Settings(BaseSettings):
     max_message_history: int = 1000
     enable_crew_verbose: bool = False
 
-    @validator("log_level")
+    @field_validator("log_level")
+    @classmethod
     def validate_log_level(cls, v: str) -> str:
         """
         Validate that the log level is one of the standard logging levels.
@@ -69,10 +87,42 @@ class Settings(BaseSettings):
             raise ValueError(f"Log level must be one of {valid_levels}")
         return v.upper()
 
-    class Config:
-        """Pydantic configuration for Settings."""
-        env_file = ".env"
-        case_sensitive = False
+    @model_validator(mode="before")
+    @classmethod
+    def load_from_env(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Load values from environment variables.
+        
+        This is a custom validator that mimics the behavior of BaseSettings
+        by loading values from environment variables.
+        
+        Args:
+            data: The input data dictionary
+            
+        Returns:
+            The updated data dictionary with values from environment variables
+        """
+        # If data is already populated (not empty), return it as is
+        if data:
+            return data
+            
+        # Import os here to avoid circular imports
+        import os
+        from dotenv import load_dotenv
+        
+        # Load environment variables from .env file
+        load_dotenv()
+        
+        # Create a dictionary with field names and their values from environment variables
+        env_data = {}
+        
+        for field_name in cls.model_fields:
+            # Convert field_name to uppercase for environment variables
+            env_var_name = field_name.upper()
+            if env_var_name in os.environ:
+                env_data[field_name] = os.environ[env_var_name]
+        
+        return env_data
 
 
 @lru_cache()

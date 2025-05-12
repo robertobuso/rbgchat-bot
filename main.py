@@ -21,7 +21,7 @@ from agents.todo_agent import TodoAgent
 from config.settings import get_settings
 from services.content_service import ContentService
 from services.notion_service import NotionService
-from services.openai_service import OpenAIService
+from services.llm_service import LLMService  # Changed from OpenAIService
 from services.slack_service import SlackService
 from utils.logging_config import configure_logging
 from utils.metrics import metrics
@@ -51,13 +51,13 @@ app.add_middleware(
 # Initialize services
 slack_service = SlackService()
 notion_service = NotionService()
-openai_service = OpenAIService()
-content_service = ContentService(openai_service)
+llm_service = LLMService()  # Changed from OpenAIService
+content_service = ContentService(llm_service)  # Pass the LLMService instead
 
 # Initialize agents
 slack_agent = SlackAgent(slack_service, verbose=settings.enable_crew_verbose)
 memory_agent = MemoryAgent(notion_service, verbose=settings.enable_crew_verbose)
-response_agent = ResponseAgent(openai_service, verbose=settings.enable_crew_verbose)
+response_agent = ResponseAgent(llm_service, verbose=settings.enable_crew_verbose)  # Update to use LLMService
 content_agent = ContentAgent(content_service, verbose=settings.enable_crew_verbose)
 todo_agent = TodoAgent(notion_service, verbose=settings.enable_crew_verbose)
 
@@ -138,13 +138,33 @@ def handle_error(error, body, logger):
     logger.debug(f"Error body: {body}")
 
 
-@app.on_event("startup")
-async def startup_event():
+# Replace the on_event with lifespan context manager
+@app.get("/", response_model=None)
+async def root():
     """
-    Initialize services and connections on application startup.
+    Root endpoint.
     
-    This function starts the Slack app in Socket Mode if available.
+    Returns:
+        Dict: Welcome message
     """
+    return {"message": "Welcome to ChatDSJ API"}
+
+
+# Replace the deprecated on_event handler with lifespan
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    """
+    Lifespan context manager for FastAPI.
+    
+    This function is called when the application starts up and shuts down.
+    It initializes services and connections on startup.
+    
+    Args:
+        app: FastAPI application
+    """
+    # Startup
     logger.info("Starting ChatDSJ Slack Bot")
     logger.info(f"Environment: {settings.environment}")
     logger.info(f"Log level: {settings.log_level}")
@@ -155,65 +175,70 @@ async def startup_event():
         logger.info("Slack bot started in socket mode.")
     else:
         logger.warning("Slack bot could not be started in socket mode.")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down ChatDSJ Slack Bot")
 
 
-@app.get("/healthz")
-async def health_check() -> Dict[str, any]:
+@app.get("/healthz", response_model=None)
+async def health_check():
     """
     Health check endpoint for monitoring and kubernetes probes.
     
     Returns:
-        Dict[str, any]: Status of the application and its services
+        Dict: Status of the application and its services
     """
     return {
         "status": "ok",
         "services": {
             "slack": slack_service.is_available(),
             "notion": notion_service.is_available(),
-            "openai": openai_service.is_available(),
+            "openai": llm_service.is_available(),
             "content": content_service.is_available()
         }
     }
 
 
-@app.get("/metrics")
-async def get_metrics() -> Dict[str, any]:
+@app.get("/metrics", response_model=None)
+async def get_metrics():
     """
     Get application metrics.
     
     Returns:
-        Dict[str, any]: Application metrics
+        Dict: Application metrics
     """
     return metrics.get_summary()
 
 
-@app.post("/metrics/reset")
-async def reset_metrics() -> Dict[str, str]:
+@app.post("/metrics/reset", response_model=None)
+async def reset_metrics():
     """
     Reset application metrics.
     
     Returns:
-        Dict[str, str]: Confirmation message
+        Dict: Confirmation message
     """
     metrics.reset()
     return {"status": "ok", "message": "Metrics have been reset"}
 
 
-@app.get("/test-openai")
-async def test_openai() -> Dict[str, any]:
+@app.get("/test-llm", response_model=None)  # Use response_model=None to avoid type errors
+async def test_llm():
     """
-    Test endpoint for the OpenAI service.
+    Test endpoint for the LLM service.
     
-    This endpoint tests the OpenAI service by sending a simple completion request.
+    This endpoint tests the LLM service by sending a simple completion request.
     
     Returns:
-        Dict[str, any]: Result of the OpenAI test
+        Response with the result of the LLM test
     """
-    if not openai_service.is_available():
-        return {"status": "error", "message": "OpenAI client not initialized"}
+    if not llm_service.is_available():
+        return {"status": "error", "message": "LLM client not initialized"}
     
     try:
-        content, usage = openai_service.get_completion(
+        content, usage = llm_service.get_completion(
             prompt="Say hello world",
             conversation_history=[]
         )
@@ -221,23 +246,23 @@ async def test_openai() -> Dict[str, any]:
         return {
             "status": "success",
             "response": content,
-            "model": openai_service.model,
+            "model": llm_service.model,
             "usage": usage
         }
     except Exception as e:
-        logger.error(f"OpenAI API test error: {e}")
+        logger.error(f"LLM API test error: {e}")
         return {"status": "error", "message": str(e)}
 
 
-@app.post("/api/summarize")
-async def summarize_url(request: Request) -> Dict[str, any]:
+@app.post("/api/summarize", response_model=None)
+async def summarize_url(request: Request):
     """
     Summarize content from a URL.
     
     This endpoint extracts and summarizes content from a URL.
     
     Returns:
-        Dict[str, any]: Summary result
+        Dict: Summary result
     """
     try:
         # Parse JSON body
@@ -270,8 +295,8 @@ async def summarize_url(request: Request) -> Dict[str, any]:
         )
 
 
-@app.get("/api/todos")
-async def get_todos(user_id: str, completed: Optional[bool] = None) -> Dict[str, any]:
+@app.get("/api/todos", response_model=None)
+async def get_todos(user_id: str, completed: Optional[bool] = None):
     """
     Get todo items for a user.
     
@@ -282,7 +307,7 @@ async def get_todos(user_id: str, completed: Optional[bool] = None) -> Dict[str,
         completed: Filter by completed status
         
     Returns:
-        Dict[str, any]: Todo items
+        Dict: Todo items
     """
     try:
         if not notion_service.is_available() or not notion_service.todo_db_id:
@@ -306,15 +331,15 @@ async def get_todos(user_id: str, completed: Optional[bool] = None) -> Dict[str,
         )
 
 
-@app.post("/api/todos")
-async def add_todo(request: Request) -> Dict[str, any]:
+@app.post("/api/todos", response_model=None)
+async def add_todo(request: Request):
     """
     Add a new todo item.
     
     This endpoint adds a new todo item for a user.
     
     Returns:
-        Dict[str, any]: Created todo item
+        Dict: Created todo item
     """
     try:
         # Parse JSON body
@@ -348,8 +373,8 @@ async def add_todo(request: Request) -> Dict[str, any]:
         )
 
 
-@app.patch("/api/todos/{todo_id}")
-async def update_todo(todo_id: str, request: Request) -> Dict[str, any]:
+@app.patch("/api/todos/{todo_id}", response_model=None)
+async def update_todo(todo_id: str, request: Request):
     """
     Update a todo item.
     
@@ -359,7 +384,7 @@ async def update_todo(todo_id: str, request: Request) -> Dict[str, any]:
         todo_id: Todo item ID
         
     Returns:
-        Dict[str, any]: Updated todo item
+        Dict: Updated todo item
     """
     try:
         # Parse JSON body
@@ -383,8 +408,8 @@ async def update_todo(todo_id: str, request: Request) -> Dict[str, any]:
         )
 
 
-@app.delete("/api/todos/{todo_id}")
-async def delete_todo(todo_id: str) -> Dict[str, any]:
+@app.delete("/api/todos/{todo_id}", response_model=None)
+async def delete_todo(todo_id: str):
     """
     Delete a todo item.
     
@@ -394,7 +419,7 @@ async def delete_todo(todo_id: str) -> Dict[str, any]:
         todo_id: Todo item ID
         
     Returns:
-        Dict[str, any]: Deletion result
+        Dict: Deletion result
     """
     try:
         if not notion_service.is_available():

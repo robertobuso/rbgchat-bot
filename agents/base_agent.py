@@ -4,9 +4,10 @@ Base agent implementation for ChatDSJ Slack Bot.
 This module provides the BaseAgent class that serves as the foundation
 for all specialized agents in the system.
 """
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from crewai import Agent
+from langchain.tools import Tool
 from loguru import logger
 
 
@@ -103,3 +104,26 @@ class BaseAgent:
             Optional[Agent]: The CrewAI Agent instance or None if not initialized
         """
         return self.crew_agent
+        
+    def execute_task(self, task, context: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Execute a task using this agent.
+        
+        Args:
+            task: The task to execute
+            context: Optional context data for the task
+            
+        Returns:
+            str: The task result
+        """
+        if not self.crew_agent:
+            logger.error(f"Agent {self.name} not initialized")
+            return "Error: Agent not initialized"
+        
+        try:
+            # Use the execute method directly on the agent with the task
+            result = self.crew_agent.execute_task(task=task, context=context)
+            return result
+        except Exception as e:
+            logger.error(f"Error executing task with agent {self.name}: {e}")
+            return f"Error executing task: {str(e)}"
